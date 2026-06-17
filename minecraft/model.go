@@ -1,6 +1,7 @@
 package minecraft
 
 import (
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -8,8 +9,24 @@ import (
 
 // Server is a Minecraft server
 type Server struct {
-	Name   string
+	// Server's Name
+	Name string
+	// Server's main Domain
 	Domain string
+	// Server's QQ group number
+	QGroupNum uint64
+	//
+	CoreSubServer *SubServer
+}
+
+type SubServer struct {
+	ID int `grom:"primary"`
+	// SubServer's Name
+	Name string
+	// SubServer's Path
+	Path os.File
+	//
+	Type SrvType
 }
 
 // Player is a server player
@@ -17,7 +34,7 @@ type Player struct {
 	// Name is player's nickname.
 	Name string
 	// QNum is player's QQ number.
-	QNum int64
+	QNum uint64
 	// FirstJoinTime is the time when the player first joined.
 	FirstJoinTime time.Time
 	// Present If true, the player is on this server; otherwise, they have left.
@@ -39,3 +56,11 @@ type McAccount struct {
 	// The McName of a player's Minecraft profile
 	McName string
 }
+
+type SrvType int
+
+const (
+	Velocity SrvType = iota
+	Minecraft
+	MCDR
+)
