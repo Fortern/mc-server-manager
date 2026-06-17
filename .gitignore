@@ -35,3 +35,6 @@ go.sum
 
 # logs
 /logs
+
+# config
+/manager.yaml

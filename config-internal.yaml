@@ -1,0 +1,18 @@
+server:
+  port: 8080
+
+database:
+  mc_server:
+    host: 127.0.0.1
+    port: 5432
+    username: postgres
+    password: postgres
+    database: mc_server
+    schema: my_server
+  qq_bot:
+    host: 127.0.0.1
+    port: 5432
+    username: postgres
+    password: postgres
+    database: qq_bot
+    schema: my_server

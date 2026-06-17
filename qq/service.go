@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -182,13 +183,21 @@ func runBot(bot *Bot, resume bool) {
 		}()
 		for {
 			messageType, data, readErr := bot.Connection.ReadMessage()
-			log.Debug("read from wss:", "messageType", messageType, "data", string(data))
 			if readErr != nil {
 				bot.Status = STOPPING
 				log.Error("read from wss error.", "err", readErr)
-				closeError, ok := errors.AsType[*websocket.CloseError](readErr)
+				var shouldResume bool
+				if closeError, ok := errors.AsType[*websocket.CloseError](readErr); ok {
+					if closeError.Code == 4009 {
+						shouldResume = true
+					}
+				} else {
+					if _, ok := errors.AsType[*net.OpError](readErr); ok {
+						shouldResume = true
+					}
+				}
 				// may panic
-				bot.StopChannel <- ok && closeError.Code == 4009
+				bot.StopChannel <- shouldResume
 				return
 			}
 			if messageType != websocket.TextMessage {
@@ -212,8 +221,18 @@ func runBot(bot *Bot, resume bool) {
 				bot.Status = STOPPING
 				log.Error("write to wss err.", "err", writeErr)
 				closeError, ok := errors.AsType[*websocket.CloseError](writeErr)
+				var shouldResume bool
+				if ok {
+					if closeError.Code == 4009 {
+						shouldResume = true
+					}
+				} else {
+					if _, ok := errors.AsType[*net.OpError](writeErr); ok {
+						shouldResume = true
+					}
+				}
 				// may panic
-				bot.StopChannel <- ok && closeError.Code == 4009
+				bot.StopChannel <- shouldResume
 				return
 			}
 		}
@@ -229,7 +248,6 @@ func runBot(bot *Bot, resume bool) {
 			if bot.Status == RUNNING && bot.LastHeartbeat.Add(bot.HeartbeatInterval-4*time.Second).Before(time.Now()) {
 				bot.WriteChannel <- []byte(fmt.Sprintf("{\"op\":%d,\"d\":%d}", Heartbeat, bot.Seq))
 				bot.LastHeartbeat = time.Now()
-				log.Debug("send heartbeat", "AppId", bot.AppId)
 			}
 		case shouldResume := <-bot.StopChannel:
 			// 接收到终止信号。该信号由读写协程或控制协程发出。

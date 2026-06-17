@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"mc-server-manager/qq"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -14,8 +17,34 @@ import (
 )
 
 var (
-	config *viper.Viper
+	//go:embed config-internal.yaml
+	embeddedConfig []byte
+	v              *viper.Viper
+	config         AppConfig
 )
+
+type AppConfig struct {
+	Server   ServerConfig   `mapstructure:"server"`
+	Database DatabaseConfig `mapstructure:"database"`
+}
+
+type DatasourceConfig struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	Database string `mapstructure:"database"`
+	Schema   string `mapstructure:"schema"`
+}
+
+type DatabaseConfig struct {
+	McServer DatasourceConfig `mapstructure:"mc_server"`
+	QQBot    DatasourceConfig `mapstructure:"qq_bot"`
+}
+
+type ServerConfig struct {
+	Port int `mapstructure:"port"`
+}
 
 func main() {
 	if err := initConfig(); err != nil {
@@ -73,7 +102,7 @@ func main() {
 		return
 	})
 
-	err := router.Run(":8070")
+	err := router.Run(fmt.Sprintf(":%d", config.Server.Port))
 	if err != nil {
 		slog.Error("Error starting server", "msg", err)
 		return
@@ -81,14 +110,14 @@ func main() {
 }
 
 func initDB() (*gorm.DB, error) {
-	sub := config.Sub("db.qq-bot")
-	url := fmt.Sprintf("postgresql://%s:%s@%s:%s/%s?search_path=%s",
-		sub.GetString("username"),
-		sub.GetString("password"),
-		sub.GetString("host"),
-		sub.GetString("port"),
-		sub.GetString("database"),
-		sub.GetString("schema"),
+	dataSource := config.Database.QQBot
+	url := fmt.Sprintf("postgresql://%s:%s@%s:%d/%s?search_path=%s",
+		dataSource.Username,
+		dataSource.Password,
+		dataSource.Host,
+		dataSource.Port,
+		dataSource.Database,
+		dataSource.Schema,
 	)
 
 	if db, err := gorm.Open(postgres.Open(url), &gorm.Config{}); err != nil {
@@ -99,33 +128,32 @@ func initDB() (*gorm.DB, error) {
 }
 
 func initConfig() error {
-	config = viper.New()
+	v = viper.New()
+	v.SetConfigType("yaml")
 
-	config.SetConfigName("manager")
-	config.SetConfigType("yaml")
-	config.AddConfigPath("/etc/mc-server-manager/")
-	config.AddConfigPath("./config/")
-
-	if err := config.ReadInConfig(); err != nil {
+	// read internal config
+	if err := v.ReadConfig(bytes.NewReader(embeddedConfig)); err != nil {
 		return err
 	}
 
-	db1 := config.Sub("db.mc-server")
-	db2 := config.Sub("db.qq-bot")
+	// create or merge external config
+	external := "./manager.yaml"
+	if _, err := os.Stat(external); err != nil {
+		if !os.IsNotExist(err) {
+			return err
+		}
+		err = os.WriteFile(external, embeddedConfig, 0644)
+		if err != nil {
+			return err
+		}
+	}
 
-	db1.Set("host", "localhost")
-	db1.Set("port", 5432)
-	db1.Set("username", "postgres")
-	db1.Set("password", "postgres")
-	db1.Set("dbname", "mc_server")
-	db1.Set("schema", "my_server")
-
-	db2.Set("host", "localhost")
-	db2.Set("port", 5432)
-	db2.Set("username", "postgres")
-	db2.Set("password", "postgres")
-	db2.Set("dbname", "qq-bot")
-	db1.Set("schema", "my_server")
-
+	v.SetConfigFile(external)
+	if err := v.MergeInConfig(); err != nil {
+		return err
+	}
+	if err := v.Unmarshal(&config); err != nil {
+		return err
+	}
 	return nil
 }
